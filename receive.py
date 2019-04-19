@@ -5,12 +5,12 @@ import matplotlib.pyplot as plt
 import pyaudio
 import numpy as np
 import scipy.signal as sig
+import config
 
 
-
-CHUNK_SIZE = 2400
-MIN_VOLUME = 100
-fs = 44000  
+CHUNK_SIZE = int(config.MESSAGE_DURATION * config.SAMPLING_RATE)
+MIN_VOLUME = 1600
+fs = config.SAMPLING_RATE
 # if the recording thread can't consume fast enough, the listener will start discarding
 BUF_MAX_SIZE = CHUNK_SIZE * 10
 
@@ -35,19 +35,40 @@ def main():
     record_t.join()
 
 
+plt.ion()
 def record(stopped, q):
     movingaverage = []
+    freq_channels = np.arange(config.LOW_FREQ, config.LOW_FREQ + config.FREQ_INTERVAL * config.FREQ_CHANNELS, config.FREQ_INTERVAL)
+    decoded = []
     while True:
         if stopped.wait(timeout=0):
             break
         chunk = q.get()
+        print(chunk)
         vol = max(chunk)
         if vol >= MIN_VOLUME and len(chunk) > 10:
             # TODO: write to file
             data_fft = np.fft.rfft(chunk, norm="ortho")
             mags = np.abs(data_fft)
-            freqs = np.fft.rfftfreq(len(chunk))
-            print("The frequency is {} Hz".format(fs*2*freqs[np.argmax(mags)]))
+            freqs = fs * 2 * np.fft.rfftfreq(len(chunk))
+            #plt.plot(freqs)
+            ints = [0.] * config.FREQ_CHANNELS
+            #print(freqs)
+            j = 0
+            for i, f in enumerate(freqs):
+                if abs(f - freq_channels[j]) < config.FREQ_THRESH:
+                    ints[j] += mags[i] / config.FREQ_THRESH
+                elif f > freq_channels[j] and j < config.FREQ_CHANNELS-1:
+                    j += 1
+            for i in range(config.FREQ_CHANNELS):
+                if ints[i] > config.AMP_THRESH:
+                    decoded.append(1)
+                else:
+                    decoded.append(0)
+            print(decoded[-config.FREQ_CHANNELS:], end=' ')
+            print()
+            #print(fs*2 *freqs[mags.argsort()[-10:][::-1]].astype(np.float32) )
+            #print("The highest frequency is {} Hz".format(freqs[np.argmax(mags)]))
 
 
 def listen(stopped, q):
