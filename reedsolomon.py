@@ -24,12 +24,15 @@ class RSCode:
         output = []
         if len(bitarr) % (self.block_size * 8):
             bitarr = bitarr[:-(len(bitarr) % (self.block_size * 8))]
-        #print(len(bitarr))
         bitarr_bytes = _bitarr2bytes(bitarr)
         for i in range(0, len(bitarr_bytes), self.block_size):
-            #print(i)
-            decoded = self.coder.decode(bitarr_bytes[i:i+self.block_size])[0]
-            output.extend(_str2bitarr(decoded))
+            try:
+                decoded = self.coder.decode(bitarr_bytes[i:i+self.block_size])[0]
+                output.extend(_str2bitarr(decoded))
+            except:
+                import sys
+                print('Reed Solomon warning: partial decode failure', file=sys.stderr)
+                output.extend(_bytes2bitarr(bitarr_bytes[i:i+self.block_content]))
         return output
 
     

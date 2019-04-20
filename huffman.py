@@ -32,7 +32,7 @@ def _bitarr2bytes(input):
     """ helper for converting bit array to bytes """
     output = []
     if len(input) % 8:
-        input.extend([0] * (8 - len(input) % 8))
+        input.extend([1,0,0,1,1,0,0][:8 - len(input) % 8])
     for i in range(0, len(input), 8):
         val = 0
         for j in range(i, min(i+8, len(input))):
