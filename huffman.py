@@ -28,11 +28,16 @@ def _i2s(input, i=0, n=-1):
         input >>= 7
     return output[::-1]
 
-def _bitarr2bytes(input):
+def _bitarr2bytes(input, pad=True):
     """ helper for converting bit array to bytes """
     output = []
-    if len(input) % 8:
-        input.extend([1,0,0,1,1,0,0][:8 - len(input) % 8])
+    if pad:
+        if len(input) % 8:
+            padlen = 8 - len(input) % 8
+            input.extend([1,0,0,1,1,0,0][:padlen])
+            input.extend(_str2bitarr(_i2s(padlen))) #padding info
+        else:
+            input.extend([0] * 8)
     for i in range(0, len(input), 8):
         val = 0
         for j in range(i, min(i+8, len(input))):
@@ -62,6 +67,13 @@ def _bytes2bitarr(input):
             output.append(1 if (input[i] & x) else 0)
             x >>= 1
     return output
+
+def _unpad(input):
+    """ remove padding from a bit array, assuming last byte is padding size """
+    if len(input) < 8:
+        return input
+    padlen = int(_bitarr2bytes(input[-8:], False)[0])
+    return input[:-8-padlen]
 
 class HuffDict:
     """ Huffman code dictionary, based on Trie """

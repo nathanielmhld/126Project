@@ -60,7 +60,7 @@ def integrate_channels(freqs, mags, channel_freqs, freq_thresh = config.FREQ_THR
     return ints, other_total
 
 def check_has_freqs(freqs, mags, channel_freqs, freq_thresh = config.FREQ_THRESH,
-                                          mag_thresh = 40000.0, other_thresh = 9000000):
+                                          mag_thresh = 50000.0, other_thresh = 8000000):
     ints, other_total = integrate_channels(freqs, mags, channel_freqs, freq_thresh)
     #print("The highest frequency is {} Hz".format(freqs[np.argmax(mags)]))
     #print(ints, other_total)
@@ -83,7 +83,8 @@ def wait_for_start(q, process_q, best_score=None):
         if score:
             return score
         elif best_score:
-            while len(process_q) > 1:
+            #process_q.clear()
+            while len(process_q) > 2:
                 process_q.popleft()
             return True
     return False
@@ -98,7 +99,7 @@ def record(stopped, q, process_q):
         best_wait_score = wait_for_start(q, process_q, best_wait_score)
     print("synchronized with transmitter 1, receiving data...")
     decoded = []
-    end_cnt = 0
+    end_cnt, last_exceed_range = 0, False
     while end_cnt < 2:
         if stopped.wait(timeout=0):
             break
@@ -109,7 +110,7 @@ def record(stopped, q, process_q):
         process_q.clear()
 
         data_fft, mags, freqs = fft(chunk)
-        if check_has_freqs(freqs, mags, config.END_SIGNAL[0], mag_thresh=32000, other_thresh=15000000):
+        if check_has_freqs(freqs, mags, config.END_SIGNAL[0], mag_thresh=30000, other_thresh=30000000):
             end_cnt += 1
         else:
             end_cnt = 0
@@ -118,30 +119,39 @@ def record(stopped, q, process_q):
         best_eff_mag, best_freq = 0, 320.0
         for i, f in enumerate(freqs):
             if f < config.LOW_FREQ - config.FREQ_INTERVAL/2: continue
-            eff_mag = mags[i]/f**0.5
+            if f > 4000.0: break
+            eff_mag = mags[i]/f**1.0
             if eff_mag > best_eff_mag:
                 best_eff_mag = eff_mag
                 best_freq = f
 
         high_freq = best_freq#freqs[np.argmax(mags)] 
         recon = int(np.round((high_freq - config.LOW_FREQ) / config.FREQ_INTERVAL))
-        print("The highest frequency is {} Hz, {}".format(high_freq, recon))
+        print("The highest frequency is {} Hz, channel {}".format(
+              high_freq, recon))
+        if recon < 0 or recon > 255:
+            last_exceed_range = True
+            print('ignored: received byte out of acceptable range (0-256)')
+            continue
+        last_exceed_range = False
 
         digit = (1 << (config.MESSAGE_BITS-1))
         i = config.MESSAGE_BITS-1
         while digit:
-            decoded.append(((recon & digit) >> i) ^ ((config.MESSAGE_BITS-i) & 1))
+            decoded.append(((recon & digit) >> i) ^
+                           ((config.MESSAGE_BITS-i) & 1))
             digit >>= 1
             i -= 1
         print(decoded[-config.MESSAGE_BITS:], end=' ')
         print()
-    decoded = decoded[:-(end_cnt-1)*8]
+    if not last_exceed_range:
+        decoded = decoded[:-8]
     print("transmission ended")
 
-    print('bytes received: ', len(decoded))
+    print('bits received:', len(decoded))
     test_rs_decode = rsCode.decode(decoded)
     test_decode = huffDict[test_rs_decode]
-    print('decoded message: ', test_decode)
+    print('decoded message:', test_decode)
     stopped.set()
     import os
     os._exit(1)

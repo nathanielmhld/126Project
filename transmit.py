@@ -15,6 +15,7 @@ fs = config.SAMPLING_RATE   # sampling rate, Hz, must be integer
 
 chunk_size = int(config.MESSAGE_DURATION * config.SAMPLING_RATE)
 
+# Liber Primus by cicada
 message = """Welcome, pilgrim, to the great journey toward the end of all things. It is not an easy trip, but for those who find their way here it is a necessary one. Along the way you will find an end to all struggle and suffering, your innocence, your illusions, your certainty, and your reality. Ultimately, you will discover an end to self.
 """
 """
@@ -22,11 +23,16 @@ It is through this pilgrimage that we shape ourselves and our realities. Journey
 Wisdom: you are a being unto yourself. You are a law unto yourself. Each intelligence is holy. For all that lives is holy. An instruction: command your own self.
 Some wisdom: the primes are sacred. The totient function is sacred. All things should be encrypted, know this."""
 
-#message = """Si man i yulma nin enquantuva?"""
+# Pythagora's speech, from Virgil
+message = """The eras change, nations grow strong, or weaken, like Troy, magnificent in men and riches... And now displaying only ruins for wealth the old ancestral tombs. Sparta, Mycenae, Athens, and Thebes, all flourished once, and now what are they more than names? I hear that Rome Is rising..."""
+
+#message = 'hello world!'
 
 """ message should now be list of 0, 1 """
 #message_binary = np.random.randint(2, size=(10000 * config.MESSAGE_BITS,)) # random message
 message_binary = huffDict[message]
+#print(len(message_binary))
+#print(config.RS_BLOCK_CONTENT)
 print('input:', len(message) * 8, 'bits')
 print('huff:', len(message_binary), 'bits')
 message_binary = rsCode.encode(message_binary)
@@ -123,12 +129,12 @@ for i in range(0, len(message_binary), config.MESSAGE_BITS):
 
 test_rs_decode = rsCode.decode(decoded)
 test_decode = huffDict[test_rs_decode]
-#test_decode = huffDict[decoded]
-print('fake decoder got: ', test_decode)
+print('bits received:', len(decoded))
+print('fake decoder got:', test_decode)
 
 print("\ntransmitting end signal")
 for i, sfreqs in enumerate(config.END_SIGNAL):
-    for j in range(3):
+    for j in range(4):
         stream.write(samples(sfreqs, -1))
 print('finished transmitting, stopping')
 

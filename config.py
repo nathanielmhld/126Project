@@ -15,9 +15,10 @@ AMP_THRESH = 0.5
 RS_BLOCK_SIZE = 128
 RS_BLOCK_CONTENT = 80
 START_SIGNAL = [
-                [650, 975, 1950],
+               # [650, 975, 1950],
+                 [3392, 3600],
                ]
 
 END_SIGNAL = [
-               [750, 1175, 1950, 3000],
+               [3450, 3550],
              ]
