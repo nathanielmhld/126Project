@@ -6,7 +6,7 @@ import config
 
 # load huffDict
 huffDict = HuffDict.from_save('huffman_model.pkl')
-rsCode = RSCode()
+rsCode = RSCode(allow_partial_block = config.RS_ALLOW_PARTIAL_BLOCK)
 
 p = pyaudio.PyAudio()
 
@@ -119,8 +119,7 @@ stream = p.open(format=pyaudio.paFloat32,#p.get_format_from_width(1),
 
 print("syncronizing")
 for i, sfreqs in enumerate(config.START_SIGNAL):
-    for j in range(4):
-        stream.write(samples(sfreqs, -len(config.START_SIGNAL)+i))
+    stream.write(samples(sfreqs, -len(config.START_SIGNAL)+i))
 print("\ntransmitting")
 
 # play. May repeat with different volume values (if done interactively)
@@ -134,8 +133,7 @@ print('fake decoder got:', test_decode)
 
 print("\ntransmitting end signal")
 for i, sfreqs in enumerate(config.END_SIGNAL):
-    for j in range(4):
-        stream.write(samples(sfreqs, -1))
+    stream.write(samples(sfreqs, -1))
 print('finished transmitting, stopping')
 
 stream.stop_stream()

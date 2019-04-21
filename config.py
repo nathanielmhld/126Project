@@ -9,16 +9,23 @@ FREQ_INTERVAL = 12.0 # interval between channels
 CHANNEL_FREQS = [400, 700, 1000,  1300, 1600, 1900, 2200, 2600]#, 3100, 3600]
 CHANNEL_POW =   [4.,  1.5, 1.0,  1.0,  1.0,  1.0,  1.0,  1.0]#,  1.5,  2.0]
 
-FREQ_THRESH = 10.0
+FREQ_THRESH = 5.0
 AMP_THRESH = 0.5
 
-RS_BLOCK_SIZE = 128
-RS_BLOCK_CONTENT = 80
+RS_BLOCK_SIZE = 255
+RS_BLOCK_CONTENT = 120
+RS_ALLOW_PARTIAL_BLOCK = False
 START_SIGNAL = [
                # [650, 975, 1950],
+                 [3392, 3600],
+                 [3392, 3600],
+                 [3392, 3600],
                  [3392, 3600],
                ]
 
 END_SIGNAL = [
+               [3450, 3550],
+               [3450, 3550],
+               [3450, 3550],
                [3450, 3550],
              ]
