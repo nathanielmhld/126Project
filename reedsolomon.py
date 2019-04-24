@@ -3,9 +3,22 @@ import config
 import unireedsolomon as rs
 from huffman import _bitarr2bytes, _bytes2bitarr, _str2bitarr, _unpad
 
+def _transpose(arr, blocksz):
+    tr = [0] * len(arr)
+    if not blocksz:
+        print('empty')
+        return
+    nblocks = len(arr) // blocksz
+    if blocksz * nblocks != len(arr):
+        print('warning: transpose received invalid block size')
+    for i in range(nblocks):
+        for j in range(blocksz):
+            tr[j * nblocks + i] = arr[i * blocksz + j]
+    return tr
+
 class RSCode:
     """ Reed-Solomon encoder and decoder """
-    def __init__(self, block_size = 0, block_content = 0, allow_partial_block = True):
+    def __init__(self, block_size = 0, block_content = 0, allow_partial_block = False):
         """ Create R.S. Code with given block size and given max message (content) length
             (block_content < block_size; corrects at most (block_content - block_size) / 2 errors)
             If allow_partial_block is set, then the last block may be made smaller to fit text size. """
@@ -26,14 +39,20 @@ class RSCode:
             else:
                 encoded = self.coder.encode(input_bytes)
             output.extend(_str2bitarr(encoded))
-        return output
+        if not self.allow_partial_block:
+            output_tr = _transpose(output, self.block_size * 8)
+        return output_tr
 
     def decode(self, bitarr):
         output = []
         if not self.allow_partial_block and len(bitarr) % (self.block_size * 8):
             # cut off unaligned
             bitarr = bitarr[:-(len(bitarr) % (self.block_size * 8))]
-        bitarr_bytes = _bitarr2bytes(bitarr, False)
+        if self.allow_partial_block:
+            bitarr_tr = bitarr
+        else:
+            bitarr_tr = _transpose(bitarr, len(bitarr) // (self.block_size * 8))
+        bitarr_bytes = _bitarr2bytes(bitarr_tr, False)
         fail = False
 
         for op in range(3):

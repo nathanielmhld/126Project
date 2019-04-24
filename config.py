@@ -1,31 +1,50 @@
+DEBUG = False # if false, turns off useless prints
+
 SAMPLING_RATE = 44100 # sampling rate, Hz, must be integer
 
 # bit rate is 1/MESSAGE_DURATION * FREQ_CHANNELS
-MESSAGE_DURATION = 0.1 # time per message
-MESSAGE_BITS = 8 # number of bits per message
+
+# transmitter config
+PACKET_TIME = 0.07 # time per packet
+PACKET_WAIT_TIME = 0.02 # time spent on 'standby' per packet
+PACKET_BITS = 4 # number of bits per packet per transmitter
+
+TRANSMITTER_STARTS = [1050, 2300] # start freqs for each transmitter
+TRANSMITTER_INTERVALS = [50, 70] # freq interval for each transmitter
+TRANSMITTER_CONTINUER = [1900, 3490] # the special 'continue last symbol' frequencies
+
+NUM_TRANSMITTERS = len(TRANSMITTER_STARTS) # number of transmitters (autofill)
+MESSAGE_BITS = PACKET_BITS * NUM_TRANSMITTERS # number of bits in total per message (autofill)
+
+# deprecated
 LOW_FREQ = 320.0 # minimum frequency
 FREQ_INTERVAL = 12.0 # interval between channels
-
-CHANNEL_FREQS = [400, 700, 1000,  1300, 1600, 1900, 2200, 2600]#, 3100, 3600]
-CHANNEL_POW =   [4.,  1.5, 1.0,  1.0,  1.0,  1.0,  1.0,  1.0]#,  1.5,  2.0]
 
 FREQ_THRESH = 5.0
 AMP_THRESH = 0.5
 
-RS_BLOCK_SIZE = 255
-RS_BLOCK_CONTENT = 120
-RS_ALLOW_PARTIAL_BLOCK = False
+# reed-solomon: corrects (block_size - block_content) / 2
+RS_BLOCK_SIZE = 32
+RS_BLOCK_CONTENT = 22
+RS_ALLOW_PARTIAL_BLOCK = False # if yes, saves space by using variable-size RS blocks, very bittle!
+
+# start signal design
 START_SIGNAL = [
-               # [650, 975, 1950],
-                 [3392, 3600],
-                 [3392, 3600],
-                 [3392, 3600],
-                 [3392, 3600],
+                 [4600],
+                 [4600],
+                 [4600],
+                 [4600],
+                 [4600],
+                 [4600],
                ]
 
+# end signal design
 END_SIGNAL = [
-               [3450, 3550],
-               [3450, 3550],
-               [3450, 3550],
-               [3450, 3550],
+               [4000],
+               [4000],
+               [4000],
+               [4000],
+               [4000],
+               [4000],
+               [4000],
              ]

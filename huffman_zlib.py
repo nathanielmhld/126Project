@@ -17,7 +17,7 @@ class HuffDict:
         elif type(key) is list or type(key) is tuple:
             return self.decode(key)
     def encode(self, input):
-        return _bytes2bitarr(zlib.compress(input.encode('ascii')))
+        return _bytes2bitarr(zlib.compress(input.encode('ascii'), level=9))
     def decode(self, input):
         return zlib.decompress(_bitarr2bytes(input)).decode('ascii')
 
