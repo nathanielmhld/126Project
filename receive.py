@@ -1,10 +1,11 @@
 import threading
+import sys
 from array import array
 from queue import Queue, Full
 from collections import deque
 from huffman_zlib import HuffDict
 from reedsolomon import RSCode
-import matplotlib.pyplot as plt
+#import matplotlib.pyplot as plt
 import pyaudio
 import time
 import numpy as np
@@ -12,11 +13,11 @@ import scipy.signal as sig
 import config
 
 # load huffDict
-huffDict = HuffDict.from_save('huffman_model.pkl')
+huffDict = HuffDict()
 rsCode = RSCode(allow_partial_block = config.RS_ALLOW_PARTIAL_BLOCK)
 
-SPLIT_CHUNKS = 3
-TRANSMITTER_CHUNK_SIZE = int(config.PACKET_TIME * config.SAMPLING_RATE)
+SPLIT_CHUNKS = 2
+TRANSMITTER_CHUNK_SIZE = config.CHUNK_SIZE
 print('using chunk size:', TRANSMITTER_CHUNK_SIZE)
 
 CHUNK_SIZE = TRANSMITTER_CHUNK_SIZE // SPLIT_CHUNKS
@@ -26,8 +27,11 @@ BUF_MAX_SIZE = CHUNK_SIZE * 100
 
 # if true, loads from file rather than actually listening
 FROM_FILE = False
-# if true, saves recording to file (only if FROM_FILE = True)
+# if true, saves recording to file (only if FROM_FILE false and config.DEBUG true)
 SAVE_TO_FILE = True
+
+if len(sys.argv) > 1 and sys.argv[1] == '-f':
+    FROM_FILE = True
 
 p = pyaudio.PyAudio()
 
@@ -52,7 +56,8 @@ def main():
         stopped.set()
         listen_t.join()
         all_data = to_float_audio(np.array(all_data))
-        np.save('sample_data.npy', all_data)
+        if SAVE_TO_FILE and config.DEBUG:
+            np.save('sample_data.npy', all_data)
     else:
         exe_times.append(time.time())
         all_data = np.load('sample_data.npy')
@@ -64,6 +69,7 @@ def main():
         print()
         if not FROM_FILE:
             print('* bitrate:', len(msg) * 8 / (exe_times[2] - exe_times[0]))
+        print('bits in message:', len(msg) * 8)
         print('time:', exe_times[-1] - exe_times[0])
         print('recd:', exe_times[1] - exe_times[0])
         print('stft:', exe_times[2] - exe_times[1])
@@ -90,13 +96,17 @@ def integrate_channels(freqs, mags, channel_freqs, freq_thresh = config.FREQ_THR
     return ints, other_total
 
 def check_has_freqs(freqs, mags, channel_freqs, freq_thresh = config.FREQ_THRESH,
-                                          mag_thresh = 0.3, other_thresh = 10.0):
+                                          mag_thresh = 0.3, other_thresh = 16.0):
     ints, other_total = integrate_channels(freqs, mags, channel_freqs, freq_thresh)
     score = min(ints)
+    if score == 0:
+        if config.DEBUG:
+            print('warning: check_has_freqs gave score of 0!')
+        return None
+
     other_total /= score
-    #print("The highest frequency is {} Hz".format(freqs[np.argmax(mags)]))
     if config.DEBUG:
-        print(ints, other_total)
+        print('awaiting start/end sig, intensities=', ints, ' noise=',  other_total)
     if score < mag_thresh:
         return None
     if other_total > other_thresh:
@@ -137,14 +147,15 @@ def wait_for_end(stopped, q, process_q, all_data, exe_times):
             new_chunk = q.get()
             all_data.extend(new_chunk)
             process_q.append(new_chunk)
-        print(len(all_data), 'samples received')
+        #if config.DEBUG:
+        #    print(len(all_data), 'samples received')
         chunk = to_float_audio(np.hstack(process_q))[0]
 
         process_q.popleft()
         data_fft, mags, freqs = fft(chunk)
 
         score = check_has_freqs(freqs, mags, config.END_SIGNAL[0],
-                mag_thresh=0.3, other_thresh=10.0)
+                mag_thresh=0.3, other_thresh=50.0)
         if score:
             end_cnt += 1
         else:
@@ -177,7 +188,7 @@ def decode(all_data, exe_times):
     #plt.figure()
     #plt.plot(x_axis, audio)
 
-    STFT_STEP = 3
+    STFT_STEP = config.STFT_STEP
     sf, st, sZ = sig.stft(audio, fs, nperseg=TRANSMITTER_CHUNK_SIZE, noverlap=TRANSMITTER_CHUNK_SIZE//STFT_STEP * (STFT_STEP-1))
     sZ_mag = np.absolute(sZ)
     sZ_phase = np.angle(sZ)
@@ -214,6 +225,7 @@ def decode(all_data, exe_times):
     
     lo_sep = np.searchsorted(sf, 1950)
     hi_sep = np.searchsorted(sf, 2250)
+    hi_cutoff = np.searchsorted(sf, 3900)
     sZ_mag_lo = sZ_mag[:lo_sep, :]
     sZ_mag_hi = sZ_mag[hi_sep:, :]
 
@@ -244,26 +256,44 @@ def decode(all_data, exe_times):
 
     plt.plot(t_max_ch_lo)
     plt.plot(t_max_ch_hi)
+    plt.show()
     """
 
     start_signal_end = 0
-    while t_max_ch_hi[start_signal_end] < config.START_SIGNAL[0][0] - 100:
+    while start_signal_end < len(t_max_ch_hi) and t_max_ch_hi[start_signal_end] < config.START_SIGNAL[0][0] - 100:
         start_signal_end += 1
-    while t_max_ch_hi[start_signal_end] > config.START_SIGNAL[0][0] - config.TRANSMITTER_INTERVALS[0]/2:
+    while start_signal_end < len(t_max_ch_hi) and t_max_ch_hi[start_signal_end] > config.START_SIGNAL[0][0] - config.TRANSMITTER_INTERVALS[0]/2:
         start_signal_end += 1
-    print('start signal ends:', start_signal_end)
+    if config.DEBUG:
+        print('start signal ends:', start_signal_end)
 
-    decoded = []
+    end_signal_start = len(t_max_ch_hi)-1
+    while end_signal_start > 0 and t_max_ch_hi[end_signal_start] < config.END_SIGNAL[0][0] - 100:
+        end_signal_start -= 1
+    while end_signal_start > 0 and t_max_ch_hi[end_signal_start] > config.END_SIGNAL[0][0] - config.TRANSMITTER_INTERVALS[0]/2:
+        end_signal_start -= 1
+    if end_signal_start <= start_signal_end:
+        end_signal_start = len(t_max_ch_hi)-1
+    if config.DEBUG:
+        print('end signal starts:', end_signal_start)
+
+    sZ_mag_hi = sZ_mag[hi_sep:hi_cutoff, :]
+    t_max_ch_i_hi =  np.argmax(sZ_mag_hi, axis=0)
+    t_max_ch_hi = sf_hi[t_max_ch_i_hi]
+
+    decoded, ignored = [], []
     last_exceed_range = False
 
-    chunks_to_decode = (len(t_max_ch_hi) - start_signal_end - 2) // STFT_STEP + 1
+    chunks_to_decode = (end_signal_start - start_signal_end - 1) // STFT_STEP + 1
     _prev_lo, _prev_hi = -1, -1
 
     # frequency to (half) byte
     decode_freq = lambda fr, trans: int(np.round((fr - config.TRANSMITTER_STARTS[trans]) / config.TRANSMITTER_INTERVALS[trans]))
 
     for i in range(chunks_to_decode):
-        start_pos, end_pos = start_signal_end + i*STFT_STEP + 1, start_signal_end + (i+1)*STFT_STEP - 1
+        stft_offset = min(STFT_STEP // 4, 2)
+        start_pos = start_signal_end + i*STFT_STEP + stft_offset
+        end_pos = min(start_signal_end + (i+1)*STFT_STEP - stft_offset, end_signal_start+1)
         high_freq = np.median(t_max_ch_hi[start_pos : end_pos])
         low_freq = np.median(t_max_ch_lo[start_pos : end_pos])
         if np.isnan(high_freq) or np.isnan(low_freq): break
@@ -283,7 +313,7 @@ def decode(all_data, exe_times):
             sZ_mag_part[high_freq_left : high_freq_right, :] = 0.0
             max_ch = sf_hi[np.argmax(sZ_mag_part, axis=0)]
             high_freq = np.median(max_ch)
-            recon_hi = decode_freq(high_freq, 1)
+            recon_hi = max(decode_freq(high_freq, 1), 0)
             #print('!h ', past_high_freq, high_freq, _prev_hi, recon_hi)
 
         if recon_lo == _prev_lo:
@@ -296,25 +326,29 @@ def decode(all_data, exe_times):
             sZ_mag_part[low_freq_left : low_freq_right, :] = 0.0
             max_ch = sf_lo[np.argmax(sZ_mag_part, axis=0)]
             low_freq = np.median(max_ch)
-            recon_lo = decode_freq(low_freq, 0)
+            recon_lo = max(decode_freq(low_freq, 0), 0)
             #print('!l ', past_low_freq, low_freq, _prev_lo, recon_lo)
 
 
         # detect byte continuation signal
+        _recon_lo, _recon_hi = recon_lo, recon_hi
         if high_freq >= config.TRANSMITTER_STARTS[1] + (2**config.PACKET_BITS) * config.TRANSMITTER_INTERVALS[1] and high_freq < config.END_SIGNAL[0][0] - 100:
             recon_hi = _prev_hi
         if low_freq >= config.TRANSMITTER_STARTS[0] + (2**config.PACKET_BITS) * config.TRANSMITTER_INTERVALS[0] and low_freq < config.TRANSMITTER_STARTS[1]:
             recon_lo = _prev_lo
         if config.DEBUG:
+            #print(t_max_ch_lo[start_pos : end_pos])
+            #print(t_max_ch_hi[start_pos : end_pos])
             print("{0:.2f} {1:.2f}: {2} {3}".format(low_freq, high_freq, recon_lo, recon_hi))
 
-        if recon_hi < 0 or recon_hi >= 16 or recon_lo < 0 or recon_lo >= 16:
+        _prev_hi = _recon_hi
+        _prev_lo = _recon_lo
+        if recon_hi >= 16 or recon_lo >= 16:
             last_exceed_range = True
             if config.DEBUG:
-                print('ignored: channel out of acceptable range (0-{}), possibly beginning of end signal?'.format(2**config.PACKET_BITS-1))
+                print('warning: channel out of acceptable range (0-{}), possibly beginning of end signal?'.format(2**config.PACKET_BITS-1))
+                ignored.extend([recon_lo, recon_hi])
             continue
-        _prev_hi = recon_hi
-        _prev_lo = recon_lo
 
         if t_max_ch_hi[start_signal_end] > config.END_SIGNAL[0][0] - 100:
             last_exceed_range = True
@@ -325,6 +359,17 @@ def decode(all_data, exe_times):
             continue
         """
         last_exceed_range = False
+
+        for recon in ignored:
+            digit = (1 << (config.PACKET_BITS-1))
+            i = config.PACKET_BITS-1
+            while digit:
+                decoded.append(((recon & digit) >> i) ^
+                               ((config.MESSAGE_BITS-i) & 1))
+                digit >>= 1
+                i -= 1
+
+        ignored = []
 
         digit = (1 << (config.PACKET_BITS-1))
         i = config.PACKET_BITS-1
@@ -345,11 +390,21 @@ def decode(all_data, exe_times):
         #print()
     #if not last_exceed_range:
     #    decoded = decoded[:-8]
-    #plt.show()
     #print(decoded)
 
-    print('total bits in message:', len(decoded))
+    print('total bits received:', len(decoded))
     test_rs_decode = rsCode.decode(decoded)
+    if config.DEBUG:
+        import os.path
+        if os.path.exists('_actual_message.npy'):
+            actual = np.load('_actual_message.npy')
+            while len(decoded) > len(actual):
+                decoded.pop()
+            while len(decoded) < len(actual):
+                decoded.append(0)
+            errs = np.sum(np.abs(np.array(decoded) - np.array(actual)))
+            print('errors', errs, '=', errs / len(decoded))
+    #print(decoded)
     test_decode = huffDict[test_rs_decode]
     return test_decode
 

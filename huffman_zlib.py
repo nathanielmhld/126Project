@@ -19,6 +19,6 @@ class HuffDict:
     def encode(self, input):
         return _bytes2bitarr(zlib.compress(input.encode('ascii'), level=9))
     def decode(self, input):
-        return zlib.decompress(_bitarr2bytes(input)).decode('ascii')
+        return zlib.decompress(_bitarr2bytes(input, pad=False)).decode('ascii')
 
 

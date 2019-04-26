@@ -6,6 +6,8 @@ To encode: x[string] OR x.encode(string)
 To decode: x[encoded_sequence] OR x.decode(encoded_sequence)
 WARNING: may pad spaces at the end if length is not a multiple of n (which is 2 in our current model)
 """
+import config
+import numpy as np
 
 def _s2i(input, i=0, n=-1):
     """ helper for converting string to integer using ascii starting at position i, using n chars per entity """
@@ -24,20 +26,25 @@ def _i2s(input, i=0, n=-1):
     """ helper for converting int to string (inverse of _s2i) """
     output = ''
     while input:
-        output += chr(input & 0x7f)
-        input >>= 7
+        output += chr(input & 0xff)
+        input >>= 8
     return output[::-1]
 
-def _bitarr2bytes(input, pad=True):
+def _bitarr2bytes(input, pad=None):
     """ helper for converting bit array to bytes """
     output = []
     if pad:
-        if len(input) % 8:
-            padlen = 8 - len(input) % 8
-            input.extend([1,0,0,1,1,0,0][:padlen])
-            input.extend(_str2bitarr(_i2s(padlen))) #padding info
-        else:
-            input.extend([0] * 8)
+        input = ([0] * 16) + input
+        if len(input) % pad:
+            padlen = pad - len(input) % pad
+            input.extend(np.random.randint(0, 2, padlen)) # add some garbage
+            padlen_mark = _str2bitarr(_i2s(padlen % 256))
+            if len(padlen_mark) < 8:
+                padlen_mark = [0] * (8 - len(padlen_mark)) + padlen_mark
+            padlen_mark = _str2bitarr(_i2s(padlen // 256)) + padlen_mark
+            if len(padlen_mark) < 16:
+                padlen_mark = [0] * (16 - len(padlen_mark)) + padlen_mark
+            input[0:16] = padlen_mark
     for i in range(0, len(input), 8):
         val = 0
         for j in range(i, min(i+8, len(input))):
@@ -69,11 +76,12 @@ def _bytes2bitarr(input):
     return output
 
 def _unpad(input):
-    """ remove padding from a bit array, assuming last byte is padding size """
+    """ remove padding from the end of a bit array, assuming first two bytes are padding size """
     if len(input) < 8:
         return input
-    padlen = int(_bitarr2bytes(input[-8:], False)[0])
-    return input[:-8-padlen]
+    padlen = int(_bitarr2bytes(input[:8], False)[0])
+    padlen = padlen * 256 + int(_bitarr2bytes(input[8:16], False)[0])
+    return input[16:-padlen]
 
 class HuffDict:
     """ Huffman code dictionary, based on Trie """

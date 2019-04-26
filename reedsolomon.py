@@ -5,9 +5,6 @@ from huffman import _bitarr2bytes, _bytes2bitarr, _str2bitarr, _unpad
 
 def _transpose(arr, blocksz):
     tr = [0] * len(arr)
-    if not blocksz:
-        print('empty')
-        return
     nblocks = len(arr) // blocksz
     if blocksz * nblocks != len(arr):
         print('warning: transpose received invalid block size')
@@ -29,7 +26,8 @@ class RSCode:
 
     def encode(self, bitarr):
         output = []
-        bitarr_bytes = _bitarr2bytes(bitarr)
+        bitarr_bytes = _bitarr2bytes(bitarr, self.block_content * 8)
+        #print('e', len(bitarr_bytes))
         for i in range(0, len(bitarr_bytes), self.block_content):
             input_bytes = bitarr_bytes[i:i+self.block_content]
             if self.allow_partial_block and len(input_bytes) * 2 < self.block_content: 
@@ -44,6 +42,9 @@ class RSCode:
         return output_tr
 
     def decode(self, bitarr):
+        if not bitarr:
+            print('warning: empty block received')
+            return
         output = []
         if not self.allow_partial_block and len(bitarr) % (self.block_size * 8):
             # cut off unaligned
@@ -65,6 +66,10 @@ class RSCode:
                         decoded = partial_block_coder.decode(enc_bytes)[0]
                     else:
                         decoded = self.coder.decode(enc_bytes)[0]
+                    if len(decoded) < self.block_content:
+                        diff = self.block_content - len(decoded)
+                        decoded = '\0' * diff + decoded
+                    #print('d', _str2bitarr(decoded))
                     output.extend(_str2bitarr(decoded))
                 except:
                     fail = True
