@@ -2,13 +2,15 @@ import pyaudio
 import sys, os.path as path
 import time, pickle
 import numpy as np
-from huffman_zlib import HuffDict
+from huffman_zlib import ZlibCoder
+from huffman import HuffDict
 from reedsolomon import RSCode
 import config
 
 # load huffDict
-huffDict = HuffDict()
-rsCode = RSCode(allow_partial_block = config.RS_ALLOW_PARTIAL_BLOCK)
+huffDict = HuffDict.from_save(config.HUFF_DICT_PATH)
+zlibCoder = ZlibCoder()
+rsCode = RSCode()
 
 volume = 1.0     # range [0.0, 1.0]
 fs = config.SAMPLING_RATE   # sampling rate, Hz, must be integer
@@ -54,13 +56,20 @@ if len(sys.argv) > 1:
 if config.DEBUG:
     _ta1 = time.time()
 
+zlib_message = zlibCoder[message]
 huff_message = huffDict[message]
 if config.DEBUG:
     _ta2 = time.time()
 #print(config.RS_BLOCK_CONTENT)
 print('input:', len(message) * 8, 'bits')
 print('huff:', len(huff_message), 'bits')
-message_binary = rsCode.encode(huff_message)
+print('zlib:', len(zlib_message), 'bits')
+use_huff = len(huff_message) < len(zlib_message)
+
+if use_huff:
+    message_binary = rsCode.encode(huff_message)
+else:
+    message_binary = rsCode.encode(zlib_message)
 if config.DEBUG:
     _ta3 = time.time()
 print('rscode:', len(message_binary), 'bits')
@@ -71,9 +80,14 @@ if config.DEBUG:
     test_rs_decode = rsCode.decode(message_binary)
     #print(len(test_rs_decode))
     #print(len(huff_message))
-    assert test_rs_decode == huff_message
-    test_huff_decode = huffDict[test_rs_decode]
-    assert test_huff_decode == message
+    if use_huff:
+        assert test_rs_decode == huff_message
+        test_huff_decode = huffDict[test_rs_decode]
+        assert test_huff_decode.strip() == message.strip()
+    else:
+        assert test_rs_decode == zlib_message
+        test_zlib_decode = zlibCoder[test_rs_decode]
+        assert test_zlib_decode == message
     print('debug sanity checker: encoding working (able to decode locally)')
 _last_played = [-1] * config.NUM_TRANSMITTERS
 
@@ -122,8 +136,8 @@ for i, sfreqs in enumerate(config.START_SIGNAL):
 if config.DEBUG:
     _tb = time.time()
     print('init time:', _tb - _ta1)
-    print('> huff code:', _ta2 - _ta1)
-    print('> rs code:', _ta3 - _ta2)
+    print('> compression:', _ta2 - _ta1)
+    print('> EC code:', _ta3 - _ta2)
     print('> debug code:', _tb - _ta3)
 
 # play. May repeat with different volume values (if done interactively)

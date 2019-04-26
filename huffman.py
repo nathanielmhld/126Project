@@ -9,7 +9,7 @@ WARNING: may pad spaces at the end if length is not a multiple of n (which is 2 
 import config
 import numpy as np
 
-def _s2i(input, i=0, n=-1):
+def _s2i_128(input, i=0, n=-1):
     """ helper for converting string to integer using ascii starting at position i, using n chars per entity """
     if n == -1:
         n = len(input)
@@ -22,6 +22,27 @@ def _s2i(input, i=0, n=-1):
         output += char_id
     return output
 
+def _i2s_128(input, i=0, n=-1):
+    """ helper for converting int to string (inverse of _s2i) """
+    output = ''
+    while input:
+        output += chr(input & 0x7f)
+        input >>= 7
+    return output[::-1]
+
+def _s2i(input, i=0, n=-1):
+    """ helper for converting string to integer using ascii starting at position i, using n chars per entity """
+    if n == -1:
+        n = len(input)
+    output = 0
+    for j in range(i, min(i+n, len(input))):    
+        output <<= 8
+        char_id = ord(input[j])
+        if char_id < 0 or char_id >= 256:
+            char_id = ord(' ')
+        output += char_id
+    return output
+
 def _i2s(input, i=0, n=-1):
     """ helper for converting int to string (inverse of _s2i) """
     output = ''
@@ -30,21 +51,22 @@ def _i2s(input, i=0, n=-1):
         input >>= 8
     return output[::-1]
 
-def _bitarr2bytes(input, pad=None):
+def _bitarr2bytes(input, pad=None, padsz=8):
     """ helper for converting bit array to bytes """
     output = []
     if pad:
-        input = ([0] * 16) + input
+        input = ([0] * padsz) + input
         if len(input) % pad:
             padlen = pad - len(input) % pad
             input.extend(np.random.randint(0, 2, padlen)) # add some garbage
             padlen_mark = _str2bitarr(_i2s(padlen % 256))
             if len(padlen_mark) < 8:
                 padlen_mark = [0] * (8 - len(padlen_mark)) + padlen_mark
-            padlen_mark = _str2bitarr(_i2s(padlen // 256)) + padlen_mark
-            if len(padlen_mark) < 16:
-                padlen_mark = [0] * (16 - len(padlen_mark)) + padlen_mark
-            input[0:16] = padlen_mark
+            if padsz == 16:
+                padlen_mark = _str2bitarr(_i2s(padlen // 256)) + padlen_mark
+                if len(padlen_mark) < 16:
+                    padlen_mark = [0] * (16 - len(padlen_mark)) + padlen_mark
+            input[0:padsz] = padlen_mark
     for i in range(0, len(input), 8):
         val = 0
         for j in range(i, min(i+8, len(input))):
@@ -75,13 +97,17 @@ def _bytes2bitarr(input):
             x >>= 1
     return output
 
-def _unpad(input):
+def _unpad(input, padsz = 8):
     """ remove padding from the end of a bit array, assuming first two bytes are padding size """
-    if len(input) < 8:
+    if len(input) < padsz:
         return input
     padlen = int(_bitarr2bytes(input[:8], False)[0])
-    padlen = padlen * 256 + int(_bitarr2bytes(input[8:16], False)[0])
-    return input[16:-padlen]
+    if padsz == 16:
+        padlen = padlen * 256 + int(_bitarr2bytes(input[8:16], False)[0])
+    if padlen:
+        return input[padsz:-padlen]
+    else:
+        return input[padsz:]
 
 class HuffDict:
     """ Huffman code dictionary, based on Trie """
@@ -94,7 +120,7 @@ class HuffDict:
         freq_dict = [0] * num_keys
 
         for i in range(0, len(data), n):
-            freq_dict[_s2i(data, i, n)] += 1
+            freq_dict[_s2i_128(data, i, n)] += 1
 
         heap = [HuffDict(freq_dict[x], val=x) for x in range(num_keys)]
         heapify(heap)
@@ -172,7 +198,7 @@ class HuffDict:
             node = self
             while node:
                 if node.val and not key:
-                    return _i2s(node.val)
+                    return _i2s_128(node.val)
                 if key & 1:
                     node = node.child1
                 else:
@@ -215,7 +241,7 @@ class HuffDict:
         if len(input) % n:
             input += ' ' * (n - len(input) % n)
         for i in range(0, len(input), n):
-            i = _s2i(input, i, n)
+            i = _s2i_128(input, i, n)
             result.extend(self.reverse_dict()[i])
         return result
 
@@ -235,7 +261,7 @@ class HuffDict:
                     node = node.child0
                 new_pos = i+1
             if node.val:
-                output.append(_i2s(node.val))
+                output.append(_i2s_128(node.val))
                 pos = new_pos
             else:
                 pos += 1

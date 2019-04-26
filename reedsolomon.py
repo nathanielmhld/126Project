@@ -1,90 +1,45 @@
 """ Reed-Solomon code """
 import config
-import unireedsolomon as rs
+from reedsolo import RSCodec
 from huffman import _bitarr2bytes, _bytes2bitarr, _str2bitarr, _unpad
 
-def _transpose(arr, blocksz):
+def _transpose(arr, blocksz = 0, nblocks = 0):
     tr = [0] * len(arr)
-    nblocks = len(arr) // blocksz
-    if blocksz * nblocks != len(arr):
+    if blocksz:
+        nblocks = len(arr) // (blocksz * 8)
+    elif nblocks:
+        blocksz = len(arr) // (nblocks * 8)
+    if blocksz * nblocks * 8 != len(arr):
         print('warning: transpose received invalid block size')
     for i in range(nblocks):
         for j in range(blocksz):
-            tr[j * nblocks + i] = arr[i * blocksz + j]
+            for k in range(8):
+                tr[j * nblocks * 8 + i * 8 + k] = arr[i * blocksz * 8 + j * 8 + k]
     return tr
 
 class RSCode:
     """ Reed-Solomon encoder and decoder """
-    def __init__(self, block_size = 0, block_content = 0, allow_partial_block = False):
-        """ Create R.S. Code with given block size and given max message (content) length
-            (block_content < block_size; corrects at most (block_content - block_size) / 2 errors)
-            If allow_partial_block is set, then the last block may be made smaller to fit text size. """
-        self.block_size = block_size or config.RS_BLOCK_SIZE
-        self.block_content = block_content or config.RS_BLOCK_CONTENT
-        self.coder = rs.RSCoder(self.block_size, self.block_content)
-        self.allow_partial_block = allow_partial_block
+    def __init__(self, num_ec=None):
+        """ Create R.S. Code with given number of EC symbols. corrects num_ec / 2 errors. """
+        self.num_ec = num_ec or config.RS_NUM_EC
+        self.coder = RSCodec(self.num_ec)
 
     def encode(self, bitarr):
         output = []
-        bitarr_bytes = _bitarr2bytes(bitarr, self.block_content * 8)
-        #print('e', len(bitarr_bytes))
-        for i in range(0, len(bitarr_bytes), self.block_content):
-            input_bytes = bitarr_bytes[i:i+self.block_content]
-            if self.allow_partial_block and len(input_bytes) * 2 < self.block_content: 
-                partial_block_size = len(input_bytes) * 2
-                partial_block_coder = rs.RSCoder(partial_block_size, len(input_bytes))
-                encoded = partial_block_coder.encode(input_bytes)
-            else:
-                encoded = self.coder.encode(input_bytes)
-            output.extend(_str2bitarr(encoded))
-        if not self.allow_partial_block:
-            output_tr = _transpose(output, self.block_size * 8)
-        return output_tr
+        bitarr_bytes = _bitarr2bytes(bitarr, 8, 8)
+        encoded = self.coder.encode(bitarr_bytes)
+        output = _bytes2bitarr(encoded)
+        return output
 
     def decode(self, bitarr):
         if not bitarr:
             print('warning: empty block received')
             return
-        output = []
-        if not self.allow_partial_block and len(bitarr) % (self.block_size * 8):
+        if len(bitarr) % 8:
             # cut off unaligned
-            bitarr = bitarr[:-(len(bitarr) % (self.block_size * 8))]
-        if self.allow_partial_block:
-            bitarr_tr = bitarr
-        else:
-            bitarr_tr = _transpose(bitarr, len(bitarr) // (self.block_size * 8))
-        bitarr_bytes = _bitarr2bytes(bitarr_tr, False)
-        fail = False
-
-        for op in range(3):
-            fail = False
-            for i in range(0, len(bitarr_bytes), self.block_size):
-                try:
-                    enc_bytes = bitarr_bytes[i:i+self.block_size]
-                    if self.allow_partial_block and len(enc_bytes) < self.block_size:
-                        partial_block_coder = rs.RSCoder(len(enc_bytes), len(enc_bytes)//2)
-                        decoded = partial_block_coder.decode(enc_bytes)[0]
-                    else:
-                        decoded = self.coder.decode(enc_bytes)[0]
-                    if len(decoded) < self.block_content:
-                        diff = self.block_content - len(decoded)
-                        decoded = '\0' * diff + decoded
-                    #print('d', _str2bitarr(decoded))
-                    output.extend(_str2bitarr(decoded))
-                except:
-                    fail = True
-                    output.extend(_bytes2bitarr(bitarr_bytes[i:i+self.block_content]))
-            if not fail:
-                break
-            # hardcoded off-by-one fixes
-            if op == 0:
-                # try adding a byte at beginning
-                bitarr_bytes = b'\0' + bitarr_bytes 
-            elif op == 1:
-                # try deleting a byte at end
-                bitarr_bytes = bitarr_bytes[1:-1]
-
-        return _unpad(output)
-
-    
+            bitarr = bitarr[:-len(bitarr) % 8]
+        bitarr_bytes = _bitarr2bytes(bitarr, None)
+        decoded = self.coder.decode(bitarr_bytes)[0]
+        output = _bytes2bitarr(decoded)
+        return _unpad(output, 8)
 
