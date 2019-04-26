@@ -20,7 +20,8 @@ rsCode = RSCode()
 
 SPLIT_CHUNKS = 2
 TRANSMITTER_CHUNK_SIZE = config.CHUNK_SIZE
-print('using chunk size:', TRANSMITTER_CHUNK_SIZE)
+if config.DEBUG:
+    print('using chunk size:', TRANSMITTER_CHUNK_SIZE)
 
 CHUNK_SIZE = TRANSMITTER_CHUNK_SIZE // SPLIT_CHUNKS
 fs = config.SAMPLING_RATE
@@ -109,9 +110,9 @@ def check_has_freqs(freqs, mags, channel_freqs, freq_thresh = config.FREQ_THRESH
     score = score / other_total
     if config.DEBUG:
         if channel_freqs[0] == config.START_SIGNAL[0][0]:
-            print('awaiting start sig, intensities=', ints, ' noise=',  other_total, 'snr=', score)
+            print('awaiting start sig, int=', ints, ' noise=',  other_total, 'snr=', score)
         else:
-            print('awaiting end sig, intensities=', ints, ' noise=',  other_total, 'snr=', score)
+            print('awaiting end sig, int=', ints, ' noise=',  other_total, 'snr=', score)
     if score < thresh:
         return None
     return score
@@ -217,8 +218,8 @@ def decode(all_data, exe_times):
     #ch_std =  np.std(sZ_mag[channel_idxs, :], axis=1, keepdims=True)
     #sZ_mag[channel_idxs, :] = (sZ_mag[channel_idxs, :] - ch_means) / ch_std + 1
 
-    t_sum =  np.sum(sZ_mag, axis=0, keepdims=True)
-    sZ_mag = sZ_mag / t_sum
+    #t_sum =  np.sum(sZ_mag, axis=0, keepdims=True)
+    #sZ_mag = sZ_mag / t_sum
     
     lo_sep = np.searchsorted(sf, 2090)
     hi_sep = np.searchsorted(sf, 2340)
@@ -258,23 +259,20 @@ def decode(all_data, exe_times):
     plt.show()
     """
 
+    print('determining decoder alignment...')
     start_signal_end = 0
-    while start_signal_end < len(t_max_ch_hi) and t_max_ch_hi[start_signal_end] < config.START_SIGNAL[0][0] - 100:
+    while start_signal_end < len(t_max_ch_hi) and t_max_ch_hi[start_signal_end] < config.START_SIGNAL[0][0] - config.TRANSMITTER_INTERVALS[1]/2:
         start_signal_end += 1
-    while start_signal_end < len(t_max_ch_hi) and t_max_ch_hi[start_signal_end] > config.START_SIGNAL[0][0] - config.TRANSMITTER_INTERVALS[1]:
+    while start_signal_end < len(t_max_ch_hi) and t_max_ch_hi[start_signal_end] > config.START_SIGNAL[0][0] - config.TRANSMITTER_INTERVALS[1]/2:
         start_signal_end += 1
-    if config.DEBUG:
-        print('start signal ends:', start_signal_end)
 
     end_signal_start = len(t_max_ch_hi)-1
-    while end_signal_start > 0 and t_max_ch_hi[end_signal_start] < config.END_SIGNAL[0][0] - 100:
+    while end_signal_start > 0 and t_max_ch_hi[end_signal_start] < config.END_SIGNAL[0][0] - config.TRANSMITTER_INTERVALS[1]/2:
         end_signal_start -= 1
     while end_signal_start > 0 and t_max_ch_hi[end_signal_start] > config.END_SIGNAL[0][0] - config.TRANSMITTER_INTERVALS[1]/2:
         end_signal_start -= 1
     if end_signal_start <= start_signal_end:
         end_signal_start = len(t_max_ch_hi)-1
-    if config.DEBUG:
-        print('end signal starts:', end_signal_start)
 
     sZ_mag_hi = sZ_mag[hi_sep:hi_cutoff, :]
     t_max_ch_i_hi =  np.argmax(sZ_mag_hi, axis=0)
@@ -283,14 +281,48 @@ def decode(all_data, exe_times):
     decoded, ignored = [], []
     last_exceed_range = False
 
+    # fine-tune the start position
+    print('fine-tuning decoder alignment...')
+    best_start_signal_end = start_signal_end
+    best_start_signal_end_uniq = 1e11
+    for j in range(-20, 20):
+        cur_start_signal_end = start_signal_end + j
+        if cur_start_signal_end < 0: continue
+        chunks_to_decode = (end_signal_start - cur_start_signal_end - 1) // STFT_STEP + 1
+        if chunks_to_decode <= 0:
+            break
+
+        # previewing
+        uniq = 0
+        for i in range(chunks_to_decode):
+            start_pos = cur_start_signal_end + i*STFT_STEP
+            end_pos = min(cur_start_signal_end + (i+1)*STFT_STEP, end_signal_start+1)
+            #uniq += np.max(t_max_ch_hi[start_pos : end_pos]) - np.min(t_max_ch_hi[start_pos : end_pos])
+            uniq += np.unique(t_max_ch_hi[start_pos : end_pos]).size
+            #uniq += np.max(t_max_ch_lo[start_pos : end_pos]) - np.min(t_max_ch_lo[start_pos : end_pos])
+        # metric: average num of unique frequencies per chunk, perfectly aligned should have none
+        #         also add j to not deviate too far e.g. skip bytes
+        uniq = uniq / chunks_to_decode + abs(j) * config.DECODER_ALIGNMENT_FINE_TUNE_COST
+        if uniq < best_start_signal_end_uniq:
+            best_start_signal_end = cur_start_signal_end
+            best_start_signal_end_uniq = uniq
+        #print('u', cur_start_signal_end, uniq)
+
+    print('> decoder alignment results:')
+    print('  start signal ends:', best_start_signal_end)
+    if best_start_signal_end != start_signal_end:
+        print('  > fine-tuned from:', start_signal_end)
+    print('  end signal starts:', end_signal_start)
+    start_signal_end = best_start_signal_end
     chunks_to_decode = (end_signal_start - start_signal_end - 1) // STFT_STEP + 1
     _prev_lo, _prev_hi = -1, -1
 
+    print('\ndigitalizing signal...')
     # frequency to (half) byte
     decode_freq = lambda fr, trans: int(np.round((fr - config.TRANSMITTER_STARTS[trans]) / config.TRANSMITTER_INTERVALS[trans]))
+    stft_offset = min(STFT_STEP // 4, 2)
 
     for i in range(chunks_to_decode):
-        stft_offset = min(STFT_STEP // 4, 2)
         start_pos = start_signal_end + i*STFT_STEP + stft_offset
         end_pos = min(start_signal_end + (i+1)*STFT_STEP - stft_offset, end_signal_start+1)
         high_freq = np.median(t_max_ch_hi[start_pos : end_pos])
@@ -345,6 +377,7 @@ def decode(all_data, exe_times):
         if recon_hi >= 16 or recon_lo >= 16:
             last_exceed_range = True
             if config.DEBUG:
+                # temporarily ignore bytes
                 print('warning: channel out of acceptable range (0-{}), possibly beginning of end signal?'.format(2**config.PACKET_BITS-1))
                 ignored.extend([recon_lo, recon_hi])
             continue
@@ -352,14 +385,10 @@ def decode(all_data, exe_times):
         if t_max_ch_hi[start_signal_end] > config.END_SIGNAL[0][0] - 100:
             last_exceed_range = True
             continue
-        """
-        elif best_eff_mag < 3.:
-            print('ignored: signal too quiet')
-            continue
-        """
         last_exceed_range = False
 
         for recon in ignored:
+            # if we add a byte then add all previously ignored bytes before it
             digit = (1 << (config.PACKET_BITS-1))
             i = config.PACKET_BITS-1
             while digit:
@@ -367,9 +396,9 @@ def decode(all_data, exe_times):
                                ((config.MESSAGE_BITS-i) & 1))
                 digit >>= 1
                 i -= 1
+        ignored = [] # clear
 
-        ignored = []
-
+        # add the current byte
         digit = (1 << (config.PACKET_BITS-1))
         i = config.PACKET_BITS-1
         while digit:
@@ -391,29 +420,12 @@ def decode(all_data, exe_times):
     #    decoded = decoded[:-8]
     #print(decoded)
 
-    print('total bits received:', len(decoded))
-    if config.DEBUG:
-        import os.path
-        if os.path.exists('_actual_message.npy'):
-            actual = np.load('_actual_message.npy')
-            while len(decoded) > len(actual):
-                decoded.pop()
-            while len(decoded) < len(actual):
-                decoded.append(0)
-            Y = np.array(decoded)
-            X = np.array(actual)
-            bitwise_errs = np.sum(np.abs(Y - X))
-            X = X.reshape(-1, 8)
-            Y = Y.reshape(-1, 8)
-            errs = np.sum(np.any(X != Y, axis=1))
-            #print(X)
-            #print(Y)
-            print('bit errors', bitwise_errs, '=', bitwise_errs / (len(decoded) * 8))
-            print('byte errors', errs, '=', errs / len(decoded))
-
+    print('> total bits received:', len(decoded))
+    print('\ndecoding reed-solomon code...')
     rs_decode = rsCode.decode(decoded)
     #print(decoded)
     use_huff = False
+    print('\ndecompressing...')
     try:
         if rs_decode[-1] == 1:
             decompr = zlibCoder[rs_decode[:-1]]
@@ -430,9 +442,9 @@ def decode(all_data, exe_times):
             decompr = huffDict[rs_decode[:-1]]
             use_huff = True
     if use_huff:
-        print('decompressed using custom huffman')
+        print('> compression scheme identified: custom Huffman code')
     else:
-        print('decompressed using zlib')
+        print('> compression scheme identified: zlib')
     return decompr
 
 def listen(stopped, q, process_q):

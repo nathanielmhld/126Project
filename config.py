@@ -27,13 +27,16 @@ if CHUNK_SIZE % STFT_STEP:
 # frequency bin for start/end signals - freqs in +- this value are binned together
 FREQ_THRESH = 20.0
 
+# cost to deviate from default decoder alignment by one bit, used in decoder alignment stage
+DECODER_ALIGNMENT_FINE_TUNE_COST = 0.005
+
 # reed-solomon: corrects (block_size - block_content) / 2
-RS_NUM_EC = 66
+RS_NUM_EC = 76
 
 # deprecated options
-RS_BLOCK_SIZE = 32
-RS_BLOCK_CONTENT = 24
-RS_ALLOW_PARTIAL_BLOCK = False # if yes, saves space by using variable-size RS blocks; ignores RS_BLOCK_SIZE!
+# RS_BLOCK_SIZE = 32
+# RS_BLOCK_CONTENT = 24
+# RS_ALLOW_PARTIAL_BLOCK = False # if yes, saves space by using variable-size RS blocks; ignores RS_BLOCK_SIZE!
 
 # start signal design
 START_SIGNAL = [
@@ -59,5 +62,9 @@ END_SIGNAL = [
 # noise reference
 REF_FREQS = [50, 110, 220, 330, 440, 660, 770, 880, 990, 1000, 1500]
 
+import os.path
+# project root dir
+ROOT_DIR = os.path.dirname(os.path.realpath(__file__))
+
 # huff dict path
-HUFF_DICT_PATH = "huffman_model.pkl"
+HUFF_DICT_PATH = os.path.join(ROOT_DIR, "huffman_model.pkl")

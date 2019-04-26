@@ -8,6 +8,11 @@ WARNING: may pad spaces at the end if length is not a multiple of n (which is 2 
 """
 import config
 import numpy as np
+import itertools
+
+import string
+CHARSET_ASCII = list(range(128))
+CHARSET_ASCII_REDUCED = sorted(list(map(ord, string.printable[:-2])))
 
 def _s2i_128(input, i=0, n=-1):
     """ helper for converting string to integer using ascii starting at position i, using n chars per entity """
@@ -23,7 +28,7 @@ def _s2i_128(input, i=0, n=-1):
     return output
 
 def _i2s_128(input, i=0, n=-1):
-    """ helper for converting int to string (inverse of _s2i) """
+    """ helper for converting int to string (inverse of _s2i_128) """
     output = ''
     while input:
         output += chr(input & 0x7f)
@@ -113,16 +118,19 @@ class HuffDict:
     """ Huffman code dictionary, based on Trie """
 
     @staticmethod
-    def from_text(data, n):
+    def from_text(data, n, chars=CHARSET_ASCII):
         """ create binary huffman code dictionary from the given text with n characters per entity """
         from heapq import heappush, heappop, heapify
-        num_keys = 128 ** n
-        freq_dict = [0] * num_keys
+        num_keys = len(chars) ** n
+        freq_dict = {}
+        keys = itertools.product(*([chars]*n))
 
+        ords = map(ord, data)
         for i in range(0, len(data), n):
-            freq_dict[_s2i_128(data, i, n)] += 1
+            key = tuple(itertools.islice(ords, n))
+            freq_dict[key] = freq_dict.get(key, 0) + 1
 
-        heap = [HuffDict(freq_dict[x], val=x) for x in range(num_keys)]
+        heap = [HuffDict(freq_dict.get(x, 0), val=x) for x in keys]
         heapify(heap)
         while len(heap) > 1:
             node_x = heappop(heap)
@@ -133,19 +141,30 @@ class HuffDict:
         return heap[0]
 
     @staticmethod
-    def from_text_file(path, n):
+    def from_text_file(path, n, chars=CHARSET_ASCII):
         """ create binary huffman code dictionary from text file at the given path with n characters per entity """
-        f = open(path, 'r', encoding='utf-8')
-        return HuffDict.from_text(f.read(), n)
+        text = open(path, 'r', encoding='utf-8').read().encode("ascii", errors="ignore").decode()
+        chars_st = set(chars)
+        text = ''.join(filter(lambda x: ord(x) in chars_st, text))
+        return HuffDict.from_text(text, n, chars)
 
     @staticmethod
     def from_save(path):
         """ load saved HuffDict from path """
         f = open(path, 'rb')
         import pickle
-        return pickle.load(f)
+        hd = pickle.load(f)
 
-    def __init__(self, freq=0., val=None, child0=None, child1=None, parent=None):
+        if not hd['a']:
+            import sys
+            # warning old model
+            print('FATAL: hey, it seems you are still using the old huffman code model, I have updated it to make it faster' +
+                  'and more efficient for less typical strings.\n' +
+                  'please download it at: http://ocf.berkeley.edu/~sxyu/huffman_model.pkl', file=sys.stderr)
+            sys.exit(1)
+        return hd
+
+    def __init__(self, freq=0., val=None, child0=None, child1=None, parent=None, depth=0):
         self.freq = freq
         self.parent = parent
         self.child0 = child0
@@ -154,15 +173,18 @@ class HuffDict:
         self.child1 = child1
         if child1:
             child1.parent = self
+        self.depth = depth
         self.val = val
 
     def __lt__(self, other):
         """ for heap comparison """
+        if self.freq == other.freq:
+            return self.depth < other.depth
         return self.freq < other.freq
 
     def __add__(self, other): 
         """ merge nodes """
-        return HuffDict(self.freq + other.freq, child0 = self, child1 = other)
+        return HuffDict(self.freq + other.freq, child0 = self, child1 = other, depth = max(self.depth, other.depth) + 1)
 
     def reverse_dict(self): 
         """ construct reverse-lookup dict """
@@ -240,9 +262,10 @@ class HuffDict:
         result = []
         if len(input) % n:
             input += ' ' * (n - len(input) % n)
+        ords = map(ord, input)
         for i in range(0, len(input), n):
-            i = _s2i_128(input, i, n)
-            result.extend(self.reverse_dict()[i])
+            key = tuple(itertools.islice(ords, n))
+            result.extend(self.reverse_dict().get(key, []))
         return result
 
     def decode(self, seq):
@@ -261,7 +284,7 @@ class HuffDict:
                     node = node.child0
                 new_pos = i+1
             if node.val:
-                output.append(_i2s_128(node.val))
+                output.append(''.join(map(chr, node.val)))
                 pos = new_pos
             else:
                 pos += 1

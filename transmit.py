@@ -58,6 +58,7 @@ if config.DEBUG:
 
 zlib_message = zlibCoder[message]
 huff_message = huffDict[message]
+
 if config.DEBUG:
     _ta2 = time.time()
 #print(config.RS_BLOCK_CONTENT)
@@ -67,8 +68,10 @@ print('zlib:', len(zlib_message), 'bits')
 use_huff = len(huff_message) < len(zlib_message)
 
 if use_huff:
+    print('selected: custom huffman')
     message_binary = rsCode.encode(huff_message + [0])
 else:
+    print('selected: zlib')
     message_binary = rsCode.encode(zlib_message + [1])
 if config.DEBUG:
     _ta3 = time.time()
@@ -132,6 +135,8 @@ def encode_message(bits, i):
 samps_lst = []
 for i, sfreqs in enumerate(config.START_SIGNAL):
     samps_lst.append(samples(sfreqs, chunk_size, 0) )
+
+samps_lst.append(b'\0\0\0\0' * standby_chunk_size)
 
 if config.DEBUG:
     _tb = time.time()
