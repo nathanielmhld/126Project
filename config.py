@@ -25,7 +25,7 @@ if CHUNK_SIZE % STFT_STEP:
     CHUNK_SIZE += STFT_STEP - CHUNK_SIZE % STFT_STEP
 
 # frequency bin for start/end signals - freqs in +- this value are binned together
-FREQ_THRESH = 10.0
+FREQ_THRESH = 20.0
 
 # reed-solomon: corrects (block_size - block_content) / 2
 RS_NUM_EC = 66
@@ -47,14 +47,17 @@ START_SIGNAL = [
 
 # end signal design
 END_SIGNAL = [
-               [4500],
-               [4500],
-               [4500],
-               [4500],
-               [4500],
-               [4500],
-               [4500],
+               [4200],
+               [4200],
+               [4200],
+               [4200],
+               [4200],
+               [4200],
+               [4200],
              ]
+
+# noise reference
+REF_FREQS = [50, 110, 220, 330, 440, 660, 770, 880, 990, 1000, 1500]
 
 # huff dict path
 HUFF_DICT_PATH = "huffman_model.pkl"

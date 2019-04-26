@@ -87,31 +87,32 @@ def fft(chunk):
 
 def integrate_channels(freqs, mags, channel_freqs, freq_thresh = config.FREQ_THRESH):
     ints = np.zeros(len(channel_freqs))
-    other_max, j = 0.0, 0
+    other_total, j = 0.0, 0
     for i, f in enumerate(freqs):
         if abs(f - channel_freqs[j]) < freq_thresh:
             ints[j] += mags[i] / freq_thresh/ len(freqs) * fs
         else:   
-            other_max = max(other_max, mags[i] / freq_thresh / len(freqs) * fs)
+            other_total += mags[i] / freq_thresh / len(freqs) * fs
             if f > channel_freqs[j] and j < len(channel_freqs)-1:
                 j += 1
-    return ints, other_max
+    return ints, other_total
 
 def check_has_freqs(freqs, mags, channel_freqs, freq_thresh = config.FREQ_THRESH,
-                                          mag_thresh = 0.1, other_thresh = 8.0):
-    ints, other_max = integrate_channels(freqs, mags, channel_freqs, freq_thresh)
+                                          thresh = 0.01):
+    ints, other_total = integrate_channels(freqs, mags, channel_freqs, freq_thresh)
     score = min(ints)
     if score == 0:
         if config.DEBUG:
             print('warning: check_has_freqs gave score of 0!')
         return None
 
-    other_max /= score
+    score = score / other_total
     if config.DEBUG:
-        print('awaiting start/end sig, intensities=', ints, ' noise=',  other_max)
-    if score < mag_thresh:
-        return None
-    if other_max > other_thresh:
+        if channel_freqs[0] == config.START_SIGNAL[0][0]:
+            print('awaiting start sig, intensities=', ints, ' noise=',  other_total, 'snr=', score)
+        else:
+            print('awaiting end sig, intensities=', ints, ' noise=',  other_total, 'snr=', score)
+    if score < thresh:
         return None
     return score
 
@@ -155,8 +156,7 @@ def wait_for_end(stopped, q, process_q, all_data, exe_times):
         process_q.popleft()
         data_fft, mags, freqs = fft(chunk)
 
-        score = check_has_freqs(freqs, mags, config.END_SIGNAL[0],
-                mag_thresh=0.1, other_thresh=8.0)
+        score = check_has_freqs(freqs, mags, config.END_SIGNAL[0], thresh = 0.01)
         if score:
             break
         process_q.clear()
@@ -411,15 +411,29 @@ def decode(all_data, exe_times):
             print('bit errors', bitwise_errs, '=', bitwise_errs / (len(decoded) * 8))
             print('byte errors', errs, '=', errs / len(decoded))
 
-    test_rs_decode = rsCode.decode(decoded)
+    rs_decode = rsCode.decode(decoded)
     #print(decoded)
+    use_huff = False
     try:
-        test_decode = zlibCoder[test_rs_decode]
-        print('using zlib')
+        if rs_decode[-1] == 1:
+            decompr = zlibCoder[rs_decode[:-1]]
+            use_huff = False
+        else:
+            decompr = huffDict[rs_decode[:-1]]
+            use_huff = True
     except:
-        print('using custom huffman')
-        test_decode = huffDict[test_rs_decode]
-    return test_decode
+        print('warning: compression scheme specified did not work, perhaps header is corrupted? Trying other scheme...')
+        if rs_decode[-1] == 0:
+            decompr = zlibCoder[rs_decode[:-1]]
+            use_huff = False
+        else:
+            decompr = huffDict[rs_decode[:-1]]
+            use_huff = True
+    if use_huff:
+        print('decompressed using custom huffman')
+    else:
+        print('decompressed using zlib')
+    return decompr
 
 def listen(stopped, q, process_q):
     stream = p.open(

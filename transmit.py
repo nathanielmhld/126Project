@@ -67,9 +67,9 @@ print('zlib:', len(zlib_message), 'bits')
 use_huff = len(huff_message) < len(zlib_message)
 
 if use_huff:
-    message_binary = rsCode.encode(huff_message)
+    message_binary = rsCode.encode(huff_message + [0])
 else:
-    message_binary = rsCode.encode(zlib_message)
+    message_binary = rsCode.encode(zlib_message + [1])
 if config.DEBUG:
     _ta3 = time.time()
 print('rscode:', len(message_binary), 'bits')
@@ -80,13 +80,13 @@ if config.DEBUG:
     test_rs_decode = rsCode.decode(message_binary)
     #print(len(test_rs_decode))
     #print(len(huff_message))
-    if use_huff:
-        assert test_rs_decode == huff_message
-        test_huff_decode = huffDict[test_rs_decode]
+    if test_rs_decode[-1] == 0:
+        assert test_rs_decode == huff_message + [0]
+        test_huff_decode = huffDict[test_rs_decode[:-1]]
         assert test_huff_decode.strip() == message.strip()
     else:
-        assert test_rs_decode == zlib_message
-        test_zlib_decode = zlibCoder[test_rs_decode]
+        assert test_rs_decode == zlib_message + [1]
+        test_zlib_decode = zlibCoder[test_rs_decode[:-1]]
         assert test_zlib_decode == message
     print('debug sanity checker: encoding working (able to decode locally)')
 _last_played = [-1] * config.NUM_TRANSMITTERS
